@@ -8,6 +8,9 @@
 #define MAX_ENEMIES 8          /* Limite de entidades */
 #define MAX_PART    64         /* Limite de particulas para explosoes */
 #define INVULN_TIME 100        /* Tempo de invulnerabilidade ao tomar dano */
+#define MAP_W 2540             // Tamanho do mapa
+#define MAP_H 438
+extern const u32 MAPA_COMPLETO[];   // Variavel pra armazenar o mapa
 
 /* Mapeamento de hardware */
 #define B_UP    0x1
@@ -63,7 +66,7 @@ typedef struct {
 #endif
 
 /* Double Buffering e Background */
-static u32 bgbuf[FRAME_PIXELS] __attribute__((aligned(64)));
+// static u32 bgbuf[FRAME_PIXELS] __attribute__((aligned(64)));
 static int scroll_x = 0; 
 
 /* Entidades do Jogo */
@@ -186,6 +189,30 @@ static void update_bullets(void){
 
 }
 
+static void draw_background(void){
+    int x, y;
+    int camera_x = (player.x_sub >> 8) - 320;
+    
+    for (y = FIELD_Y; y < 480; y++) {
+        int map_y = y - FIELD_Y;
+        if (map_y >= MAP_H) break; 
+
+        for (x = 0; x < 640; x++) {
+            int map_x = (camera_x + x) % MAP_W;
+            
+            if (map_x < 0) {
+                map_x += MAP_W; 
+            }
+
+            /* Extrai a cor do mapa */
+            u32 pixel_color = MAPA_COMPLETO[map_y * MAP_W + map_x];
+            
+            /* Envia diretamente para o motor de video */
+            v_pixel(x, y, pixel_color);
+        }
+    }
+}
+
 int main(void) {
     int running = 1;
     SDL_Event event;
@@ -271,9 +298,22 @@ int main(void) {
                 break;
             
             case ST_PLAY:
-                draw_player(player.box.x, player.box.y, player.box.w, player.box.h);
+                draw_background();
+                
+                int camera_x = (player.x_sub >> 8) - 320;
+                int tela_x = player.box.x - camera_x;
+                
+                draw_player(tela_x, player.box.y, player.box.w, player.box.h);
                 /* draw_enemies(); */
                 /* draw_bullets(); */
+                
+                /* HUD de Debug atualizado */
+                char debug_hud[64];
+                snprintf(debug_hud, sizeof(debug_hud), "VIDAS:%d  CAM_X:%d  PLY_X:%d", 
+                         player.lives, camera_x, (player.x_sub >> 8));
+                
+                v_text(10, 10, 1, RGB(255, 255, 255), debug_hud);
+                break;
                 
                 char texto_vidas[32];
                 snprintf(texto_vidas, sizeof(texto_vidas), "VIDAS: %d", player.lives);
