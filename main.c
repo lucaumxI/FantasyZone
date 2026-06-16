@@ -15,9 +15,6 @@
 #define B_LEFT  0x4
 #define B_RIGHT 0x8
 
-/* A maquina de estados global do jogo */
-enum { ST_TITLE, ST_PLAY, ST_DYING, ST_CLEAR, ST_GAMEOVER };
-
 /* Paleta de cores da interface */
 #define C_HUD_BG    RGB(24, 18, 40)
 #define C_HUD_LINE  RGB(255, 196, 64)
@@ -77,11 +74,14 @@ static Player player;
 
 /* Variaveis de Estado */
 static int  score, lives, level, coins;
-static int  state, state_timer, invuln;
+static int  invuln;
 static int  frame, prev_btn;
 static u32  rng;
 static int  debounced_state; 
 static int g_btn = 0;
+
+enum { ST_TITLE, ST_PLAY, ST_SHOP, ST_GAMEOVER };
+static int current_state = ST_TITLE;
 
 /* 1. O teto de velocidade da nave (aumentará ao comprar motores na loja) */
 #define MAX_SPEED (4 << 8)
@@ -178,13 +178,20 @@ static void check_collisions(void) {
     }
 }
 
+static void update_enemies(void){
+
+}
+
+static void update_bullets(void){
+
+}
+
 int main(void) {
     int running = 1;
     SDL_Event event;
     rng = 12345u;
 
     video_init();
-    init_player();
 
     /* Cria o inimigo real na memoria */
     enemies[0].active = 1;
@@ -192,6 +199,7 @@ int main(void) {
     enemies[0].box.y = 200;
     enemies[0].box.w = 15;
     enemies[0].box.h = 15;
+    enemies[0].color = RGB(255, 255, 255);
 
     while(running) {
         /* Processa eventos da janela (permite fechar no X) */
@@ -214,24 +222,75 @@ int main(void) {
                 else         g_btn &= ~mask;
             }
         }
-        v_clear(RGB(0, 0, 0)); /* Limpa o frame */
-        update_player();
-        
-        draw_player(player.box.x, player.box.y, player.box.w, player.box.h);
-        for (int i = 0; i < MAX_ENEMIES; i++) {
-            if (enemies[i].active) {
-                draw_enemy(enemies[i].box.x, enemies[i].box.y, enemies[i].box.w, enemies[i].box.h);
-            }
+        // Lógica
+        switch (current_state){
+            case ST_TITLE:
+                if (g_btn & B_UP) { 
+                    init_player();
+                    current_state = ST_PLAY;
+                }
+                break;
+            
+            case ST_PLAY:
+                update_player();
+                update_enemies();
+                update_bullets();
+                check_collisions();
+                
+                if (player.lives <= 0) {
+                    current_state = ST_GAMEOVER;
+                }
+    
+                if (g_btn & B_RIGHT && player.box.x > 300) { // trocar depois para check colisions com o bloco da loja
+                    current_state = ST_SHOP;
+                }
+                break;
+
+            case ST_SHOP:
+                /* Logica de comprar itens e descontar moedas entraria aqui */
+                
+                /* Para sair da loja */
+                if (g_btn & B_LEFT) { 
+                    current_state = ST_PLAY;
+                }
+                break;
+            
+            case ST_GAMEOVER:
+                if (g_btn & B_UP) { 
+                    current_state = ST_TITLE;
+                }
+                break;
         }
 
-        check_collisions();
-        char texto_vidas[32];
-        /* Monta a string formatada (%d é substituido pelo valor da variavel) */
-        snprintf(texto_vidas, sizeof(texto_vidas), "VIDAS: %d", player.lives);
-
-        /* Imprime na tela. O '2' é a escala da fonte. */
-        v_text(10, 10, 2, RGB(255, 255, 255), texto_vidas);
+        v_clear(RGB(0, 0, 0)); /* Limpa o frame */
         
+        switch (current_state){
+            case ST_TITLE:
+                v_text(100, 100, 3, RGB(120, 220, 255), "FANTASY ZONE");
+                v_text(100, 200, 1, RGB(255, 255, 255), "Aperte CIMA para Iniciar");
+                break;
+            
+            case ST_PLAY:
+                draw_player(player.box.x, player.box.y, player.box.w, player.box.h);
+                /* draw_enemies(); */
+                /* draw_bullets(); */
+                
+                char texto_vidas[32];
+                snprintf(texto_vidas, sizeof(texto_vidas), "VIDAS: %d", player.lives);
+                v_text(10, 10, 1, RGB(255, 255, 255), texto_vidas);
+                break;
+
+            case ST_SHOP:
+                v_rect(50, 50, 540, 380, RGB(20, 20, 50)); /* Fundo da loja */
+                v_text(100, 80, 2, RGB(255, 214, 92), "LOJA DE PEÇAS");
+                v_text(100, 150, 1, RGB(255, 255, 255), "Aperte ESQUERDA para Sair");
+                break;
+
+            case ST_GAMEOVER:
+                v_text(200, 200, 3, RGB(255, 50, 50), "GAME OVER");
+                break;
+        
+        }
 
         video_flip();
         video_wait_frame();
