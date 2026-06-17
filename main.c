@@ -17,6 +17,7 @@ extern const u32 MAPA_COMPLETO[];   // Variavel pra armazenar o mapa
 #define B_DOWN  0x2
 #define B_LEFT  0x4
 #define B_RIGHT 0x8
+#define B_SHOOT 0x10
 
 /* Paleta de cores da interface */
 #define C_HUD_BG    RGB(24, 18, 40)
@@ -24,6 +25,13 @@ extern const u32 MAPA_COMPLETO[];   // Variavel pra armazenar o mapa
 #define C_TEXT      RGB(238, 240, 255)
 #define C_ACCENT    RGB(255, 214, 92)
 #define C_TITLE     RGB(120, 220, 255)
+
+/* Parametros do tiro normal*/
+#define PLAYER_BULLET_W 5
+#define PLAYER_BULLET_H 5
+#define PLAYER_BULLET_VX 12
+#define PLAYER_BULLET_VY 0
+static int shoot_cooldown = 0;
 
 /* 1. A Base Geometrica */
 typedef struct {
@@ -103,6 +111,23 @@ static void draw_enemy(int x, int y, int w, int h) {    // Aqui vai ter um switc
     v_rect(x, y, w, h, RGB(255, 255, 255));
 }
 
+static void draw_bullets(int camera_x) {
+    int i;
+
+    /* Corrigido o ';' no laco for */
+    for (i = 0; i < MAX_BULLETS; i++) { 
+        if (!bullets[i].active) {
+            continue;
+        }
+        
+        /* 2. Converte a posicao do mundo para a posicao da tela */
+        int tela_x = bullets[i].box.x - camera_x;
+        
+        /* 3. Desenha o retangulo azul (placeholder) na coordenada corrigida */
+        v_rect(tela_x, bullets[i].box.y, bullets[i].box.w, bullets[i].box.h, RGB(0, 0, 200));
+    }
+}
+
 static void update_player(void) {
     /* --- EIXO X --- */
     if (g_btn & B_RIGHT) {
@@ -147,13 +172,13 @@ static void update_player(void) {
 static void init_player(void) {
     player.box.x = 100;
     player.box.y = 100;
-    player.box.w = 16; /* Aumentei um pouco para ficar visivel */
+    player.box.w = 16; 
     player.box.h = 16;
     player.x_sub = 100 << 8; 
     player.y_sub = 100 << 8;
     player.vx = 0;
     player.vy = 0;
-    player.color = RGB(50, 255, 50); /* Verde para destacar no fundo preto */
+    player.color = RGB(50, 255, 50);
     player.lives = 3;
 }
 
@@ -165,18 +190,34 @@ static int check_aabb(Hitbox a, Hitbox b) {
 }
 
 static void check_collisions(void) {
-    int i;
+    int i, j;
+
+    if (invuln > 0) {
+        invuln--;
+    }
+
     for (i = 0; i < MAX_ENEMIES; i++) {
-        
         if (!enemies[i].active) {
             continue; 
         }
 
-        /* Passa as caixas fisicas para a funcao matematica */
-        if (check_aabb(player.box, enemies[i].box)) {
+        /* Colisão Player - Enemy */
+        if (invuln == 0 && check_aabb(player.box, enemies[i].box)) {
             player.lives--;
             enemies[i].active = 0; /* Destroi o inimigo no impacto */
-            break; 
+            invuln = 120;
+            continue; 
+        }
+        /* Colisão Bullet - Enemy */
+        for (int j = 0; j < MAX_BULLETS; j++){
+            if (!bullets[j].active || bullets[j].is_enemy)
+                continue;
+            if(check_aabb(bullets[j].box, enemies[i].box)){
+                enemies[i].active = 0;
+                bullets[j].active = 0;
+                // + score. TODO
+                break;
+            }
         }
     }
 }
@@ -185,13 +226,55 @@ static void update_enemies(void){
 
 }
 
-static void update_bullets(void){
-
+static void init_bullet(void) {
+    for (int i = 0; i < MAX_BULLETS; i++) {
+        if (bullets[i].active == 0) {
+            bullets[i].active = 1;
+            bullets[i].is_enemy = 0;
+            bullets[i].box.x = player.box.x;
+            bullets[i].box.y = player.box.y;
+            bullets[i].box.w = PLAYER_BULLET_W;
+            bullets[i].box.h = PLAYER_BULLET_H;
+            
+            /* No futuro, o if (player.facing_left) entra aqui alterando o sinal de vx */
+            bullets[i].vx = PLAYER_BULLET_VX; 
+            bullets[i].vy = PLAYER_BULLET_VY;
+            
+            /* TRAVA CRITICA: Interrompe o laco apos criar 1 bala */
+            break; 
+        }
+    }
 }
 
-static void draw_background(void){
+
+static void update_bullets(void) {
+    
+    /* 1. Logica de Gatilho com Cooldown */
+    if (shoot_cooldown > 0) {
+        shoot_cooldown--;
+    }
+    
+    if ((g_btn & B_SHOOT) && (shoot_cooldown == 0)) {
+        init_bullet();
+        shoot_cooldown = 10; /* Espera 10 frames (~160ms) para permitir o proximo tiro */
+    }
+
+    /* 2. Logica de Fisica */
+    for (int i = 0; i < MAX_BULLETS; i++) {
+        if (bullets[i].active) { 
+            /* Movimento */
+            bullets[i].box.x += bullets[i].vx;
+            bullets[i].box.y += bullets[i].vy;
+            
+            /* A logica para desativar ao sair da tela entrara aqui depois */
+        }
+    }
+}
+
+
+
+static void draw_background(int camera_x){
     int x, y;
-    int camera_x = (player.x_sub >> 8) - 320;
     
     for (y = FIELD_Y; y < 480; y++) {
         int map_y = y - FIELD_Y;
@@ -243,6 +326,9 @@ int main(void) {
                     case SDLK_DOWN:  mask = B_DOWN;  break;
                     case SDLK_LEFT:  mask = B_LEFT;  break;
                     case SDLK_RIGHT: mask = B_RIGHT; break;
+                    
+                    /* Mapeia a tecla Z para disparar o bit do tiro */
+                    case SDLK_z:     mask = B_SHOOT; break; 
                 }
                 
                 if (is_down) g_btn |= mask;
@@ -298,15 +384,13 @@ int main(void) {
                 break;
             
             case ST_PLAY:
-                draw_background();
-                
                 int camera_x = (player.x_sub >> 8) - 320;
-                int tela_x = player.box.x - camera_x;
+                draw_background(camera_x);
                 
+                int tela_x = player.box.x - camera_x;
                 draw_player(tela_x, player.box.y, player.box.w, player.box.h);
                 /* draw_enemies(); */
-                /* draw_bullets(); */
-                
+                draw_bullets(camera_x);
                 /* HUD de Debug atualizado */
                 char debug_hud[64];
                 snprintf(debug_hud, sizeof(debug_hud), "VIDAS:%d  CAM_X:%d  PLY_X:%d", 
