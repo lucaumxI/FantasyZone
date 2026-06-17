@@ -6,18 +6,18 @@
 #define HUD_H    32            /* Altura do HUD no topo da tela */
 #define FIELD_Y  HUD_H         /* Ponto onde a area de jogo comeca */
 #define MAX_ENEMIES 8          /* Limite de entidades */
-#define MAX_PART    64         /* Limite de particulas para explosoes */
-#define INVULN_TIME 100        /* Tempo de invulnerabilidade ao tomar dano */
+#define MAX_PART    64         /* Limite de particulas para explosoes NÃO SEI SE VOU FAZER ISSO*/
+#define INVULN_TIME 120        /* Tempo de invulnerabilidade ao tomar dano */
 #define MAP_W 2540             // Tamanho do mapa
 #define MAP_H 438
 extern const u32 MAPA_COMPLETO[];   // Variavel pra armazenar o mapa
 
-/* Mapeamento de hardware */
+/* Mapeamento dos botão */
 #define B_UP    0x1
 #define B_DOWN  0x2
 #define B_LEFT  0x4
 #define B_RIGHT 0x8
-#define B_SHOOT 0x10
+#define B_SHOOT 0x10    // Precisa ver qual o endereço do botão 4-5 na Zybo
 
 /* Paleta de cores da interface */
 #define C_HUD_BG    RGB(24, 18, 40)
@@ -33,49 +33,45 @@ extern const u32 MAPA_COMPLETO[];   // Variavel pra armazenar o mapa
 #define PLAYER_BULLET_VY 0
 static int shoot_cooldown = 0;
 
-/* 1. A Base Geometrica */
+/* Lógica das entidades */
 typedef struct {
     s16 x, y;
     s16 w, h;
 } Hitbox;
 
-/* 2. O Jogador */
+/* Jogador */
 typedef struct {
     Hitbox box;
-    s32 x_sub, y_sub;
-    s32 vx, vy;
+    s32 x_sub, y_sub;   // Pra ter aceleração gradual, usa subpixeis que incrementa a velocidade aos poucos
+    s32 vx, vy;         // Velocidade em x e y
     u8 lives;
     u16 coins;
-    u8 current_weapon;
-    u32 color;
+    u8 current_weapon;  // EM TEORIA VAI TER MAIS ARMAS MAS VAMOS VER COMO VAI SER O DESENVOLVIMENTO
+    u32 color;          // eventualmente essa variavel explode
 } Player;
 
-/* 3. Os Inimigos */
+/* Os Inimigos */
 typedef struct {
-    u8 active;
+    u8 active;          // Variavel pra dizer se o inimigo está vivo ou morto
     Hitbox box;
-    s8 vx, vy;
-    u8 ai_type;       
-    u16 move_timer;   
-    u16 score_value;
-    u32 color;
+    s8 vx, vy;          // Velocidade em x e y
+    u8 ai_type;         // Talvez eu faça MAIS de um inimigo, aqui serve pra dizer que inimigo é (muda apenas a movimentação deles, pra primeira fase teriam 4 se não me engano)
+    u16 move_timer;     // Temporizador para peogramar o movimento dos inimigos (se sobe e desço isso decide quando para de descer, se é movimento de onda seria a fase)
+    u16 score_value;    // Pontuação por matar esse inimigo
+    u32 color;          // Essa também explode eventualmente
 } Enemy;
 
-/* 4. Os Tiros */
+/* Tiros */
 typedef struct {
-    u8 active;
-    u8 is_enemy;      
+    u8 active;      // Se ta ativou ou não
+    u8 is_enemy;    // Se é um tiro inimigo ou do player
     Hitbox box;
-    s8 vx, vy;
+    s8 vx, vy;      // Velocidade em x e y
 } Bullet;
 
 #ifndef HOST_TEST
-/* static XGpio btns; -> Comentado por enquanto para nao dar erro se XGpio nao estiver no video.h */
+/* static XGpio btns; -> frescuras da zybo que to comentando pra não explodir o código, não faço ideia do que isso faz */
 #endif
-
-/* Double Buffering e Background */
-// static u32 bgbuf[FRAME_PIXELS] __attribute__((aligned(64)));
-static int scroll_x = 0; 
 
 /* Entidades do Jogo */
 #define MAX_BULLETS 20
@@ -84,23 +80,21 @@ static Enemy enemies[MAX_ENEMIES];
 static Player player;
 
 /* Variaveis de Estado */
-static int  score, lives, level, coins;
+static int  score, lives, coins;
 static int  invuln;
-static int  frame, prev_btn;
 static u32  rng;
-static int  debounced_state; 
 static int g_btn = 0;
 
 enum { ST_TITLE, ST_PLAY, ST_SHOP, ST_GAMEOVER };
 static int current_state = ST_TITLE;
 
-/* 1. O teto de velocidade da nave (aumentará ao comprar motores na loja) */
+/* O teto de velocidade da nave (aumentará ao comprar itens na loja) */
 #define MAX_SPEED (4 << 8)
 
-/* 2. O ganho de velocidade por frame enquanto o botão é segurado */
+/* Aceleração por frame enquanto o botão é segurado */
 #define ACCEL 32 
 
-/* 3. A perda de velocidade por frame quando soltamos o botão (Inércia) */
+/* A perda de velocidade por frame quando soltamos o botão*/
 #define FRICTION 48
 
 static void draw_player(int x, int y, int w, int h) {   // Trocar depois por um loop iterando por um bitmap, da inclusive pra fazer uma funcao draw bitmap
@@ -114,22 +108,21 @@ static void draw_enemy(int x, int y, int w, int h) {    // Aqui vai ter um switc
 static void draw_bullets(int camera_x) {
     int i;
 
-    /* Corrigido o ';' no laco for */
     for (i = 0; i < MAX_BULLETS; i++) { 
         if (!bullets[i].active) {
             continue;
         }
         
-        /* 2. Converte a posicao do mundo para a posicao da tela */
+        /* Converte a posicao do mundo para a posicao da tela */
         int tela_x = bullets[i].box.x - camera_x;
         
-        /* 3. Desenha o retangulo azul (placeholder) na coordenada corrigida */
+        /* Desenha o retangulo azul na coordenada corrigida */
         v_rect(tela_x, bullets[i].box.y, bullets[i].box.w, bullets[i].box.h, RGB(0, 0, 200));
     }
 }
 
 static void update_player(void) {
-    /* --- EIXO X --- */
+    /* Eixo X */
     if (g_btn & B_RIGHT) {
         player.vx += ACCEL;
         if (player.vx > MAX_SPEED) player.vx = MAX_SPEED;
@@ -139,10 +132,10 @@ static void update_player(void) {
         if (player.vx < -MAX_SPEED) player.vx = -MAX_SPEED;
     } 
     else {
-        /* Atrito (Friction) com limite de parada para nao tremer */
+        /* Atrito */
         if (player.vx > FRICTION) player.vx -= FRICTION;
         else if (player.vx < -FRICTION) player.vx += FRICTION;
-        else player.vx = 0; /* Para completamente */
+        else player.vx = 0;
     }
 
     /* --- EIXO Y --- */
@@ -160,16 +153,16 @@ static void update_player(void) {
         else player.vy = 0;
     }
 
-    /* 1. Atualiza a matematica cega do sub-pixel */
+    /* Atualiza o sub-pixel */
     player.x_sub += player.vx;
     player.y_sub += player.vy;
 
-    /* 2. Converte para a matriz da tela apagando as "casas decimais" (>> 8) */
+    /* Converte para as coordenadas da tela */
     player.box.x = player.x_sub >> 8;
     player.box.y = player.y_sub >> 8;
 }
 
-static void init_player(void) {
+static void init_player(void) {     // Inicializa o jogador
     player.box.x = 100;
     player.box.y = 100;
     player.box.w = 16; 
@@ -180,16 +173,17 @@ static void init_player(void) {
     player.vy = 0;
     player.color = RGB(50, 255, 50);
     player.lives = 3;
+    player.coins = 0;
 }
 
-static int check_aabb(Hitbox a, Hitbox b) {
+static int check_aabb(Hitbox a, Hitbox b) {     // Checa hitbox usando o AABB (não há colisão se o objeto A está completamente a esquerda, direita, cima ou baixo)
     return (a.x < b.x + b.w &&
             a.x + a.w > b.x &&
             a.y < b.y + b.h &&
             a.y + a.h > b.y);
 }
 
-static void check_collisions(void) {
+static void check_collisions(void) {        // Função para testar colisão com todas entidades
     int i, j;
 
     if (invuln > 0) {
@@ -239,8 +233,6 @@ static void init_bullet(void) {
             /* No futuro, o if (player.facing_left) entra aqui alterando o sinal de vx */
             bullets[i].vx = PLAYER_BULLET_VX; 
             bullets[i].vy = PLAYER_BULLET_VY;
-            
-            /* TRAVA CRITICA: Interrompe o laco apos criar 1 bala */
             break; 
         }
     }
@@ -248,8 +240,6 @@ static void init_bullet(void) {
 
 
 static void update_bullets(void) {
-    
-    /* 1. Logica de Gatilho com Cooldown */
     if (shoot_cooldown > 0) {
         shoot_cooldown--;
     }
@@ -259,7 +249,6 @@ static void update_bullets(void) {
         shoot_cooldown = 10; /* Espera 10 frames (~160ms) para permitir o proximo tiro */
     }
 
-    /* 2. Logica de Fisica */
     for (int i = 0; i < MAX_BULLETS; i++) {
         if (bullets[i].active) { 
             /* Movimento */
@@ -273,7 +262,7 @@ static void update_bullets(void) {
 
 
 
-static void draw_background(int camera_x){
+static void draw_background(int camera_x){ // Itera um vetor gigantesco escrevendo pixel por pixel, se ter gargalo aqui é a primeira função a ser modificada
     int x, y;
     
     for (y = FIELD_Y; y < 480; y++) {
@@ -302,14 +291,6 @@ int main(void) {
     rng = 12345u;
 
     video_init();
-
-    /* Cria o inimigo real na memoria */
-    enemies[0].active = 1;
-    enemies[0].box.x = 200;
-    enemies[0].box.y = 200;
-    enemies[0].box.w = 15;
-    enemies[0].box.h = 15;
-    enemies[0].color = RGB(255, 255, 255);
 
     while(running) {
         /* Processa eventos da janela (permite fechar no X) */
@@ -391,17 +372,11 @@ int main(void) {
                 draw_player(tela_x, player.box.y, player.box.w, player.box.h);
                 /* draw_enemies(); */
                 draw_bullets(camera_x);
-                /* HUD de Debug atualizado */
-                char debug_hud[64];
-                snprintf(debug_hud, sizeof(debug_hud), "VIDAS:%d  CAM_X:%d  PLY_X:%d", 
-                         player.lives, camera_x, (player.x_sub >> 8));
+                /* HUD*/
+                char hud[20];
+                snprintf(hud, sizeof(hud), "VIDAS: %d", player.lives);
                 
-                v_text(10, 10, 1, RGB(255, 255, 255), debug_hud);
-                break;
-                
-                char texto_vidas[32];
-                snprintf(texto_vidas, sizeof(texto_vidas), "VIDAS: %d", player.lives);
-                v_text(10, 10, 1, RGB(255, 255, 255), texto_vidas);
+                v_text(10, 10, 1, RGB(255, 255, 255), hud);
                 break;
 
             case ST_SHOP:
