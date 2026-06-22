@@ -10,7 +10,6 @@ static int back = 0;
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
 static SDL_Texture* texture = NULL;
-
 u32 *video_backbuffer(void) { return fb[back]; }
 
 int video_init(void)

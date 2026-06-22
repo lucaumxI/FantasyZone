@@ -48,6 +48,7 @@ typedef struct {
     u16 coins;
     u8 current_weapon;  // EM TEORIA VAI TER MAIS ARMAS MAS VAMOS VER COMO VAI SER O DESENVOLVIMENTO
     u32 color;          // eventualmente essa variavel explode
+    u8 facing_left;
 } Player;
 
 /* Os Inimigos */
@@ -125,10 +126,12 @@ static void update_player(void) {
     /* Eixo X */
     if (g_btn & B_RIGHT) {
         player.vx += ACCEL;
+        player.facing_left = 0;
         if (player.vx > MAX_SPEED) player.vx = MAX_SPEED;
     } 
     else if (g_btn & B_LEFT) {
         player.vx -= ACCEL;
+        player.facing_left = 1;
         if (player.vx < -MAX_SPEED) player.vx = -MAX_SPEED;
     } 
     else {
@@ -174,6 +177,7 @@ static void init_player(void) {     // Inicializa o jogador
     player.color = RGB(50, 255, 50);
     player.lives = 3;
     player.coins = 0;
+    player.facing_left = 0;
 }
 
 static int check_aabb(Hitbox a, Hitbox b) {     // Checa hitbox usando o AABB (não há colisão se o objeto A está completamente a esquerda, direita, cima ou baixo)
@@ -203,7 +207,7 @@ static void check_collisions(void) {        // Função para testar colisão com
             continue; 
         }
         /* Colisão Bullet - Enemy */
-        for (int j = 0; j < MAX_BULLETS; j++){
+        for (j = 0; j < MAX_BULLETS; j++){
             if (!bullets[j].active || bullets[j].is_enemy)
                 continue;
             if(check_aabb(bullets[j].box, enemies[i].box)){
@@ -230,9 +234,13 @@ static void init_bullet(void) {
             bullets[i].box.w = PLAYER_BULLET_W;
             bullets[i].box.h = PLAYER_BULLET_H;
             
-            /* No futuro, o if (player.facing_left) entra aqui alterando o sinal de vx */
-            bullets[i].vx = PLAYER_BULLET_VX; 
-            bullets[i].vy = PLAYER_BULLET_VY;
+            if (player.facing_left){
+                bullets[i].vx = - (PLAYER_BULLET_VX); 
+                bullets[i].vy = - (PLAYER_BULLET_VY);
+            }else{
+                bullets[i].vx = PLAYER_BULLET_VX; 
+                bullets[i].vy = PLAYER_BULLET_VY;
+            }
             break; 
         }
     }
@@ -254,6 +262,8 @@ static void update_bullets(void) {
             /* Movimento */
             bullets[i].box.x += bullets[i].vx;
             bullets[i].box.y += bullets[i].vy;
+            if (abs(bullets[i].box.x - player.box.x) > 800)
+                bullets[i].active = 0;
             
             /* A logica para desativar ao sair da tela entrara aqui depois */
         }
@@ -262,25 +272,34 @@ static void update_bullets(void) {
 
 
 
-static void draw_background(int camera_x){ // Itera um vetor gigantesco escrevendo pixel por pixel, se ter gargalo aqui é a primeira função a ser modificada
-    int x, y;
-    
+static void draw_background(int camera_x) {
+    /* Pega o ponteiro do frame atual direto do motor de video */
+    u32 *draw_buffer = video_backbuffer(); 
+
+    int y;
     for (y = FIELD_Y; y < 480; y++) {
+        
         int map_y = y - FIELD_Y;
         if (map_y >= MAP_H) break; 
 
-        for (x = 0; x < 640; x++) {
-            int map_x = (camera_x + x) % MAP_W;
-            
-            if (map_x < 0) {
-                map_x += MAP_W; 
-            }
+        int map_x = camera_x % MAP_W;
+        if (map_x < 0) {
+            map_x += MAP_W;
+        }
 
-            /* Extrai a cor do mapa */
-            u32 pixel_color = MAPA_COMPLETO[map_y * MAP_W + map_x];
+        /* O resto continua igualzinho: */
+        u32 *tela_linha = &draw_buffer[y * 640];
+        const u32 *mapa_linha = &MAPA_COMPLETO[map_y * MAP_W];
+
+        /* Logica da dobra do Memcpy */
+        if (map_x + 640 <= MAP_W) {
+            memcpy(tela_linha, &mapa_linha[map_x], 640 * sizeof(u32));
+        } else {
+            int pixels_restantes_direita = MAP_W - map_x;
+            int pixels_dobrados_esquerda = 640 - pixels_restantes_direita;
             
-            /* Envia diretamente para o motor de video */
-            v_pixel(x, y, pixel_color);
+            memcpy(tela_linha, &mapa_linha[map_x], pixels_restantes_direita * sizeof(u32));
+            memcpy(&tela_linha[pixels_restantes_direita], &mapa_linha[0], pixels_dobrados_esquerda * sizeof(u32));
         }
     }
 }
