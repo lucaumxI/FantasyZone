@@ -1,1 +1,4 @@
 *.exe
+*.Identifier
+.vscode/
+.gitignore
